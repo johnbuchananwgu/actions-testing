@@ -2,11 +2,75 @@
 
 These are the changes I'm messing with, newest on top.
 
-- Pull to master
-
-- Added simple Knock knock to the GitHub Action. I think I had updated the actions yml file on the master branch rather than the development branch. Both should have the same new echo in them and hopefully we can't get merge conflicts when I run the next test of seeing this through a pull request/merge.
 
 
 
-- Simple pull request to review the github action Jake and I were experimenting with before.
 
+
+
+Likely going to have to put in a curl like the following page uses for running notebooks from GitHub Actions. https://github.com/databricks/run-notebook/#run-notebook-v0
+
+    name: Run a notebook in the current repo on PRs
+
+    on:
+      pull_request
+
+    env:
+      DATABRICKS_HOST: https://adb-XXXX.XX.azuredatabricks.net
+
+    jobs:
+      build:
+        runs-on: ubuntu-latest
+
+        steps:
+          - name: Checkout repo
+            uses: actions/checkout@v2
+          # The step below does the following:
+          # 1. Sends a POST request to generate an Azure Active Directory token for an Azure service principal
+          # 2. Parses the token from the request response and then saves that in as DATABRICKS_TOKEN in the
+          # GitHub enviornment.
+          # Note: if the API request fails, the request response json will not have an "access_token" field and
+          # the DATABRICKS_TOKEN env variable will be empty.
+          - name: Generate and save AAD Token
+            run: |
+              echo "DATABRICKS_TOKEN=$(curl -X POST -H 'Content-Type: application/x-www-form-urlencoded' \
+                https://login.microsoftonline.com/${{ secrets.AZURE_SP_TENANT_ID }}/oauth2/v2.0/token \
+                -d 'client_id=${{ secrets.AZURE_SP_APPLICATION_ID }}' \
+                -d 'grant_type=client_credentials' \
+                -d 'scope=2ff814a6-3304-4ab8-85cb-cd0e6f879c1d%2F.default' \
+                -d 'client_secret=${{ secrets.AZURE_SP_CLIENT_SECRET }}' |  jq -r  '.access_token')" >> $GITHUB_ENV
+          - name: Trigger notebook from PR branch
+            uses: databricks/run-notebook@v0
+            with:
+              local-notebook-path: notebooks/MainNotebook.py
+              # Alternatively, specify an existing-cluster-id to run against an existing cluster.
+              # The cluter JSON below is for Azure Databricks. On AWS and GCP, set
+              # node_type_id to an appropriate node type, e.g. "i3.xlarge" for
+              # AWS or "n1-highmem-4" for GCP
+              new-cluster-json: >
+                {
+                  "num_workers": 1,
+                  "spark_version": "10.4.x-scala2.12",
+                  "node_type_id": "Standard_D3_v2"
+                }
+              # Grant all users view permission on the notebook results, so that they can
+              # see the result of our CI notebook 
+              access-control-list-json: >
+                [
+                  {
+                    "group_name": "users",
+                    "permission_level": "CAN_VIEW"
+                  }
+                ]
+
+
+
+
+
+
+
+Notes for Databricks CLI
+
+https://docs.databricks.com/dev-tools/api/latest/repos.html#operation/update-repo
+
+https://docs.github.com/en/rest/actions/secrets
